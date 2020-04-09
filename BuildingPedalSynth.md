@@ -648,3 +648,31 @@ int appGetDropDown(PedalApp* app, int idx){
 }
 ```
 If we were sucessful the app will still build and we are ready to add gui to the PedalSynth.cpp.
+In PedalSynth.cpp, we can now add and use a slider
+```cpp
+float frequency;
+float phase = 0.0f;
+double phaseIncrement;
+void callback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
+              unsigned inputChannels, double time, PedalApp* app) {
+  frequency = appGetSlider(app, 0);
+  phaseIncrement = (M_PI * 2.0f * frequency)/41000.0f;
+  for(int i = 0; i < bufferSize; i++){
+    float currentSample = std::sin(phase) * 0.1f;
+    phase += phaseIncrement;
+    for(int j = 0; j < outputChannels; j++){
+      output[i * outputChannels + j] = currentSample;
+    }
+  }
+}
+int main(){
+  PedalApp* app = createApp(callback);
+  appAddSlider(app, 0, "Frequency", 60.0f, 4000.0f, 300.0f);
+  startAudioThread(app);
+  while(runApp(app)){
+    updateApp(app);
+  }
+  deleteApp(app);
+}
+```
+Now we can add an Pedal
