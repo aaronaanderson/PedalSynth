@@ -35,8 +35,9 @@ void audioCallback(float* output,float* input, unsigned bufferSize, unsigned sam
     saw.setFrequency(frequency.process());
     float currentSample = saw.generateSample();
     currentSample *= envelope.generateSample();
+
     for(int j = 0; j < outputChannels; j++){
-      output[i * outputChannels + j] = currentSample * 1.0f;
+      output[i * outputChannels + j] = currentSample * 0.1f;
     }
   }
 }
