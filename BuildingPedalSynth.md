@@ -2,15 +2,19 @@
 ## Building an audio application with CMake
 We will be building an audio application with GLFW for the app window management, IMGUI for a GUI, RTAudio for input/output callbacks and device management, Pedal for a sound library, and RTMidi for midi input. We will make two documents, PedalApp.hpp/cpp, to handle the application functionality. We will be using CMake to build this project. I will be using the names PedalApp and PedalSynth, but you may replace these with whatever.
 
-### humble beginnings 
+### Create/download documents
 Create a folder called PedalSynth
 
 Download the necessary repositories
 
 https://github.com/glfw/glfw
+
 https://github.com/ocornut/imgui
+
 https://github.com/thestk/rtaudio
+
 https://github.com/thestk/rtmidi
+
 https://github.com/aaronaanderson/Pedal
 
 Place these folders in the PedalSynth folder (remove the '-master' in the name)
@@ -51,7 +55,6 @@ in readme.md:
 # PedalSynth
 ## A synth app made with pedal
 ```
-
 If making a repository (you should), now is a good time. The most simple approach is to make a new repository online with the same name, clone it to your computer, copy in all the files we just created, and run the command
 ``` 
 git add .
@@ -66,7 +69,6 @@ cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
 add_library(pedal_app STATIC
   PedalApp.cpp
 )
-
 add_executable(PedalSynth PedalSynth.cpp)
 target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
@@ -400,6 +402,7 @@ set_target_properties(gl3w PROPERTIES
 )
 target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
 target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
+target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
 
 target_include_directories(pedal_app PUBLIC rtaudio imgui/examples)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio)
