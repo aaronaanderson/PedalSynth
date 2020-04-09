@@ -1,4 +1,8 @@
 
+## Building an audio application with CMake
+We will be building an audio application with GLFW for the app window management, IMGUI for a GUI, RTAudio for input/output callbacks and device management, Pedal for a sound library, and RTMidi for midi input. We will make two documents, PedalApp.hpp/cpp, to handle the application functionality. We will be using CMake to build this project. I will be using the names PedalApp and PedalSynth, but you may replace these with whatever.
+
+### humble beginnings 
 Create a folder called PedalSynth
 
 Download the necessary repositories
@@ -9,7 +13,7 @@ https://github.com/thestk/rtaudio
 https://github.com/thestk/rtmidi
 https://github.com/aaronaanderson/Pedal
 
-Place these folders in the PedalSynth folder created earlier
+Place these folders in the PedalSynth folder (remove the '-master' in the name)
 
 Create two files called PedalApp.hpp and PedalApp.cpp in the PedalSynth folder
 In PedalApp.hpp:
@@ -25,17 +29,18 @@ In PedalApp.cpp:
 ```
 These files will contain a PedalApp class that takes care of the library interface. It is where we will define window size, window behavior, samplerate, buffer size, etc. 
 ### Tell CMake what to do
-Create a file called CMakeLists.txt
+Create a file called CMakeLists.txt in the PedalSynth folder
 The CMakeLists.txt tells CMake how to generate our generators (make or ninja files). With the CMakeLists.txt, we can make platform dependent build rules. 
 In CMakeLists.txt
 ```CMake 
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+project(PedalSynth)
 ```
 We should make a file to hold the main program. Make the file PedalSynth.cpp and place it in the PedalSynth folder. 
 In PedalSynth:
 ```cpp
 #include PedalApp.hpp
-#include <iostream>
+#include <iostream>//for cout/endl
 int main(){
   std::cout << "Hello World" << std::endl;
 }
@@ -675,4 +680,30 @@ int main(){
   deleteApp(app);
 }
 ```
+## Adding Pedal
 Now we can add an Pedal
+In CMakeLists.txt
+```CMake
+add_subdirectory(Pedal)
+
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal)
+target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio pedal)
+```
+That should be it! We can replace what we had in the audio callback with a wavetable saw from pedal.
+In PedalSynth.cpp
+```cpp
+#include "WTSaw.hpp"
+WTSaw saw;
+void callback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
+              unsigned inputChannels, double time, PedalApp* app) {
+  saw.setFrequency(appGetSlider(app, 0));
+  for(int i = 0; i < bufferSize; i++){
+    float currentSample = saw.generateSample() * 0.1f;
+    for(int j = 0; j < outputChannels; j++){
+      output[i * outputChannels + j] = currentSample;
+    }
+  }
+}
+```
+This should veryify that pedal is working. 
+## Adding RtMidi

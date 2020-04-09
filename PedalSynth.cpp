@@ -6,9 +6,6 @@
 
 #include "WTSaw.hpp"
 WTSaw saw;
-float frequency;
-float phase = 0.0f;
-double phaseIncrement;
 void callback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
               unsigned inputChannels, double time, PedalApp* app) {
   saw.setFrequency(appGetSlider(app, 0));
