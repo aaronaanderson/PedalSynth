@@ -21,6 +21,7 @@ void callback(float* output,float* input, unsigned bufferSize, unsigned sampling
 
 int main(){
   PedalApp* app = createApp(callback);
+  
   startAudioThread(app);
   while(runApp(app)){
     updateApp(app);
