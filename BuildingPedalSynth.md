@@ -710,3 +710,225 @@ void callback(float* output,float* input, unsigned bufferSize, unsigned sampling
 ```
 This should veryify that pedal is working. 
 ## Adding RtMidi
+
+Fortunately adding RtMidi is very similar to adding RtAudio; we will need to provide a callback function for the cpp, and tell RtAudio to take care of the rest.
+In CMakeLists.txt
+```CMake
+set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "Rtmidi Shared Lib" FORCE)
+set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "Rtmidi Testing" FORCE)
+set(RTMIDI_TARGETNAME_UNINSTALL
+    RTMIDI_UNINSTALL CACHE STRING "Rtmidi Uninstall Target" FORCE)
+add_subdirectory(rtmidi)
+
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal rtmidi)
+target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
+```
+In the cpp we will have to add an include, add a few elements to the PedalApp Struct, and initiate RtMidi. Note that we will have to create another function pointer in the hpp to define the createApp() function.
+In PedalApp.hpp:
+```cpp
+#include <vector>
+using defaultMidiInputCallback = void (*)(double deltatime, 
+                                   std::vector< unsigned char >* message,
+                                   PedalApp* app);
+PedalApp* createApp(defaultCallback audioCallback, defaultMidiInputCallback midiInputCallback);
+```
+In PedalApp.cpp:
+```cpp
+#include "RtMidi.h"
+//----------skip
+struct PedalApp{
+  GLFWwindow* window;//application window
+  RtAudio rtaudio;
+  std::string device_name;
+  unsigned device_id;
+  unsigned input_channels;
+  unsigned output_channels;
+  unsigned sampling_rate;
+  unsigned buffer_size;
+  defaultCallback callback;
+  RtMidiIn* rtMidiIn;
+  defaultMidiInputCallback midiInputCallback;
+  std::string midiDeviceName;
+  unsigned int numPorts;
+  slider sliders[NUM_SLIDERS_MAX];
+  toggle toggles[NUM_TOGGLES_MAX];
+  trigger triggers[NUM_TRIGGERS_MAX];
+  dropDown dropDowns[NUM_DROPDOWNS_MAX];
+  std::atomic<float> cursorx;
+  std::atomic<float> cursory;
+};
+
+static void midiCallback( double deltatime, std::vector< unsigned char > *message, void *userData ){
+  std::vector<unsigned char> inputMessage;
+  for(int i = 0; i < message->size(); i++){
+    inputMessage.push_back(message->at(i));
+  }
+  auto* app = (PedalApp*)userData;
+  if(app && app->midiInputCallback){
+    app->midiInputCallback(deltatime, message, app);
+  }
+}
+```
+and in createApp()
+```cpp
+//RTMidi
+  app->rtMidiIn = new RtMidiIn();
+    // Check available ports.
+  app->numPorts = app->rtMidiIn->getPortCount();
+  for(int i = 0; i < app->numPorts; i++){
+    std::cout << "Port " << i << ": " << app->rtMidiIn->getPortName(i) << std::endl;
+  }
+  if ( app->numPorts == 0 ) {
+    std::cout << "No ports available!\n";
+    //DELETE STUFF TODO
+  }else{
+    app->rtMidiIn->openPort(1);
+    // Set our callback function.  This should be done immediately after
+    // opening the port to avoid having incoming messages written to the
+    // queue.
+    app->rtMidiIn->setCallback((RtMidiIn::RtMidiCallback)midiCallbackIn);
+    app->midiInputCallback = midiCallbackIn;
+    app->midiDeviceName = app->rtMidiIn->getPortName(1);
+    // Don't ignore sysex, timing, or active sensing messages.
+    app->rtMidiIn->ignoreTypes( true, false, false );
+  }
+```
+Now we are ready to add a midiCallback function in the main file
+In PedalSynth.cpp
+```cpp
+void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
+  unsigned int nBytes = message->size();
+  for ( unsigned int i=0; i<nBytes; i++ )
+    std::cout << "Byte " << i << " = " << (int)message->at(i) << ", ";
+  if ( nBytes > 0 )
+    std::cout << "stamp = " << deltaTime << std::endl;
+}
+```
+And make sure to add the function pointer to createApp in the main function.
+```cpp
+PedalApp* app = createApp(audioCallback, midiCallback);
+```
+Now when the app runs, a midi device should be listed on the window and the input should print to the screen. 
+
+RtMidi provides the binary input data. Each callback is a full MIDI message. You can use pedal's MIDIEvent class to interpret the binary data and get more familiar results
+
+Let's start by using NoteON messages to determine the frequency of the oscillator
+
+In PedalSynth.cpp
+```cpp
+#include "utilities.hpp"
+#include "MIDIEvent.hpp"
+MIDIEvent midiEvent;
+void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
+  MIDIEvent event(message);
+  switch(event.getEventType()){
+    case MIDIEvent::EventTypes::NOTE_ON:
+    saw.setFrequency(mtof(event.getNoteNumber()));
+    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    break;
+  }
+}
+```
+Instead of jumping to the frequency immediately, let's use a smoothvalue. If the time is set to be very short on a smoothvalue, there is no interpreted lag. However, the time can be expanded to intentionally lag and create portamento.
+Here is the full PedalSynth.cpp so far:
+```cpp
+#include "PedalApp.hpp"
+#include <iostream>
+
+#define _USE_MATH_DEFINES
+#include <cmath>
+
+#include "WTSaw.hpp"
+#include "utilities.hpp"
+#include "MIDIEvent.hpp"
+
+WTSaw saw;
+SmoothValue<float> frequency;
+MIDIEvent midiEvent;
+
+void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
+  MIDIEvent event(message);
+  switch(event.getEventType()){
+    case MIDIEvent::EventTypes::NOTE_ON:
+    frequency.setTarget(mtof(event.getNoteNumber()));
+    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    break;
+  }
+}
+void audioCallback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
+              unsigned inputChannels, double time, PedalApp* app) {
+  frequency.setTime(appGetSlider(app, 0));
+  for(int i = 0; i < bufferSize; i++){
+    saw.setFrequency(frequency.process());
+    float currentSample = saw.generateSample() * 0.1f;
+    for(int j = 0; j < outputChannels; j++){
+      output[i * outputChannels + j] = currentSample;
+    }
+  }
+}
+int main(){
+  PedalApp* app = createApp(audioCallback, midiCallback);
+  appAddSlider(app, 0, "Portamento", 0.0f, 2000.0f, 500.0f);
+  startAudioThread(app);
+  while(runApp(app)){
+    updateApp(app);
+  }
+  deleteApp(app);
+}
+```
+Lastly, we should use note on and note off messages to manage an envelope. We will use CREnvelope from pedal
+
+Here is the full and final PedalSynth.cpp
+```cpp
+#include "PedalApp.hpp"
+#include <iostream>
+
+#define _USE_MATH_DEFINES
+#include <cmath>
+
+#include "WTSaw.hpp"
+#include "utilities.hpp"
+#include "MIDIEvent.hpp"
+#include "CREnvelope.hpp"
+
+WTSaw saw;
+SmoothValue<float> frequency;
+CREnvelope envelope;
+MIDIEvent midiEvent;
+
+void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
+  MIDIEvent event(message);
+  switch(event.getEventType()){
+    case MIDIEvent::EventTypes::NOTE_ON:
+    frequency.setTarget(mtof(event.getNoteNumber()));
+    envelope.setTrigger(true);
+    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    break;
+    case MIDIEvent::EventTypes::NOTE_OFF:
+    std::cout << "Note Off | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    envelope.setTrigger(false);
+    break;
+  }
+}
+void audioCallback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
+              unsigned inputChannels, double time, PedalApp* app) {
+  frequency.setTime(appGetSlider(app, 0));
+  for(int i = 0; i < bufferSize; i++){
+    saw.setFrequency(frequency.process());
+    float currentSample = saw.generateSample();
+    currentSample *= envelope.generateSample();
+    for(int j = 0; j < outputChannels; j++){
+      output[i * outputChannels + j] = currentSample * 1.0f;
+    }
+  }
+}
+int main(){
+  PedalApp* app = createApp(audioCallback, midiCallback);
+  appAddSlider(app, 0, "Portamento", 0.0f, 2000.0f, 500.0f);
+  startAudioThread(app);
+  while(runApp(app)){
+    updateApp(app);
+  }
+  deleteApp(app);
+}
+```

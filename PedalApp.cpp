@@ -9,7 +9,7 @@
 #include "imgui_impl_opengl3.h"
 
 #include "RtAudio.h"
-
+#include "RtMidi.h"
 #include <string>
 #include <atomic>
 #include <iostream>
@@ -53,6 +53,10 @@ struct PedalApp{
   unsigned sampling_rate;
   unsigned buffer_size;
   defaultCallback callback;
+  RtMidiIn* rtMidiIn;
+  defaultMidiInputCallback midiInputCallback;
+  std::string midiDeviceName;
+  unsigned int numPorts;
   slider sliders[NUM_SLIDERS_MAX];
   toggle toggles[NUM_TOGGLES_MAX];
   trigger triggers[NUM_TRIGGERS_MAX];
@@ -65,6 +69,17 @@ struct PedalApp{
 void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
   if ((action == GLFW_PRESS) && (mods & GLFW_MOD_CONTROL) && (key == GLFW_KEY_Q)) {
       glfwSetWindowShouldClose(window, 1);
+  }
+}
+
+static void midiCallback( double deltatime, std::vector< unsigned char > *message, void *userData ){
+  std::vector<unsigned char> inputMessage;
+  for(int i = 0; i < message->size(); i++){
+    inputMessage.push_back(message->at(i));
+  }
+  auto* app = (PedalApp*)userData;
+  if(app && app->midiInputCallback){
+    app->midiInputCallback(deltatime, message, app);
   }
 }
 static int audioCallback(void *outputBuffer, void *inputBuffer,
@@ -80,7 +95,7 @@ static int audioCallback(void *outputBuffer, void *inputBuffer,
     }
     return 0;
 }
-PedalApp* createApp(defaultCallback callback){
+PedalApp* createApp(defaultCallback callback, defaultMidiInputCallback midiCallbackIn){
   PedalApp* app = new PedalApp;
   if(!app){
     std::cout << "error initializing app" << std::endl;
@@ -150,6 +165,28 @@ PedalApp* createApp(defaultCallback callback){
     delete app;
     return nullptr;
   }
+  //RTMidi
+  app->rtMidiIn = new RtMidiIn();
+    // Check available ports.
+  app->numPorts = app->rtMidiIn->getPortCount();
+  for(int i = 0; i < app->numPorts; i++){
+    std::cout << "Port " << i << ": " << app->rtMidiIn->getPortName(i) << std::endl;
+  }
+  if ( app->numPorts == 0 ) {
+    std::cout << "No ports available!\n";
+    //DELETE STUFF TODO
+  }else{
+    app->rtMidiIn->openPort(1);
+    // Set our callback function.  This should be done immediately after
+    // opening the port to avoid having incoming messages written to the
+    // queue.
+    app->rtMidiIn->setCallback((RtMidiIn::RtMidiCallback)midiCallbackIn);
+    app->midiInputCallback = midiCallbackIn;
+    app->midiDeviceName = app->rtMidiIn->getPortName(1);
+    // Don't ignore sysex, timing, or active sensing messages.
+    app->rtMidiIn->ignoreTypes( true, false, false );
+  }
+  
   //IMGUI
   if (gl3wInit() != 0) {
     std::cerr << "Fail: gl3wInit\n";
@@ -231,6 +268,7 @@ void updateApp(PedalApp* app){
   ImGui::Value("channels", app->output_channels);
   ImGui::Value("sampling rate", app->sampling_rate);
   ImGui::Value("buffer size", app->buffer_size);
+  ImGui::TextUnformatted(app->midiDeviceName.c_str());
   ImGui::Value("mx", cx);
   ImGui::Value("my", cy);
   for (int i = 0; i < NUM_TOGGLES_MAX; i += 1) {
@@ -294,6 +332,7 @@ void deleteApp(PedalApp* app){
   if (app->rtaudio.isStreamOpen()) {
     app->rtaudio.closeStream(); 
   }
+  delete app->rtMidiIn;
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   glfwDestroyWindow(app->window);
