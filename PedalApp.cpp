@@ -123,14 +123,25 @@ PedalApp* createApp(defaultCallback callback){
   outputParameters.nChannels = app->output_channels;
   outputParameters.firstChannel = 0;
   RtAudio::StreamParameters inputParameters;
-  inputParameters.deviceId = app->device_id;
-  inputParameters.nChannels = app->input_channels;
-  inputParameters.firstChannel = 0;
+  auto* inparams = &inputParameters;
+  if (app->input_channels > 0) {
+    inputParameters.deviceId = app->device_id;
+    inputParameters.nChannels = app->input_channels;
+    inputParameters.firstChannel = 0;
+  }
+  else {
+    // cannot open stream with 0 channels so pass nullptr in that case
+    inparams = nullptr;
+  }
   try {
-    app->rtaudio.openStream(&outputParameters, &inputParameters, RTAUDIO_FLOAT32,
-                          app->sampling_rate, &app->buffer_size,
-                          audioCallback, app,
-                          nullptr, nullptr); // option & error callback
+    app->rtaudio.openStream(&outputParameters,
+                            inparams,
+                            RTAUDIO_FLOAT32,
+                            app->sampling_rate,
+                            &app->buffer_size,
+                            audioCallback, app,
+                            nullptr, // options
+                            nullptr); // error callback
   }
   catch (RtAudioError& e) {
     e.printMessage();
