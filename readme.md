@@ -1,6 +1,6 @@
 # Pedal Synth
 ## A synth made with pedal
-This repo is in preparation for a "How to build an audio app with C++ and cmake" talk. The main value is the MakingPedalSynth.md document, where I go over each step in creating the build.
+This repo is in preparation for a "How to build an audio app with C++ and cmake" talk. The main value is the BuildingPedalSynth.md document, where I go over each step in creating the build.
 
 ### build instructions 
 Clone the repo (doesn't matter where)
