@@ -2,7 +2,8 @@
 ## Building an audio application with glfw, imgui, RtAudio, pedal, and RtMidi
 This file documents the process of creating this application.We will use GLFW for the app window management, IMGUI for a GUI, RTAudio for input/output callbacks and device management, Pedal for a sound library, and RTMidi for midi input. We will make two documents, PedalApp.hpp/cpp, to handle the application functionality. We will be using CMake to build this project. I will be using the names PedalApp and PedalSynth, but you may replace these with whatever.
 
-### Create/download documents
+### Create/download documents, create repository
+---
 Create a folder called PedalSynth
 
 Download the necessary repositories
@@ -33,6 +34,7 @@ In PedalApp.cpp:
 ```
 These files will contain a PedalApp class that takes care of the library interface. It is where we will define window size, window behavior, samplerate, buffer size, etc. 
 ### Tell CMake what to do
+---
 Create a file called CMakeLists.txt in the PedalSynth folder
 The CMakeLists.txt tells CMake how to generate our generators (make or ninja files). With the CMakeLists.txt, we can make platform dependent build rules. 
 In CMakeLists.txt
@@ -98,6 +100,7 @@ This should compile the program so far. To run the program, enter
 ```
 If succesful, Hello World should have printed to the console. 
 ## Adding GLFW
+---
 It makes sense to start next with GLFW for window creation. This is a basic application window with a minimize/fullscreen/exit buttons, resizeable window,window title, etc. 
 
 In CMakeLists.txt after the add_library() command:
@@ -468,6 +471,7 @@ int main(){
 Now when the application runs a 440Hz sine wave should sound. This is the hello world of real time audio programming. 
 
 ## Adding IMGUI
+---
 Imgui requires that we also  include glew (include with the imgui repository but must be built). The following is the full CMakeLists.txt:
 ```CMake
 cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
@@ -966,19 +970,80 @@ int main(){
 Now we have an easy method to add gui elements and query their values. In this example we have created a slider to control frequency
 
 ## Adding Pedal
+---
 You likely found this repository by looking at Pedal, but if not, Pedal is a pedagogical audio library created by myself and Kee Youn. It is both a functional audio library and a learning resource. Adding pedal, the CMakeLists will look like the following.
 Full CMakeLists.txt so far:
 ```CMake
+cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+project(PedalSynth)
+
+add_library(pedal_app STATIC
+  PedalApp.cpp
+)
+
+#GLFW, RTAudio, and IMGUI portions from Kee's work on pedal
+# Build all dependencies as static libraries
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+if(MSVC)
+    # suppress general warning on C functions such as strcpy, etc.
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+
+# glfw for window creation
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
+add_subdirectory(glfw)
+
+# Rtaudio for audio IO
+set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "Rtaudio Shared Lib" FORCE)
+set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
+set(RTAUDIO_TARGETNAME_UNINSTALL
+    RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
+add_subdirectory(rtaudio)
+
+# imgui for gui
+add_library(imgui STATIC imgui/imgui_demo.cpp imgui/imgui_draw.cpp
+                         imgui/imgui_widgets.cpp imgui/imgui.cpp)
+set_target_properties(imgui PROPERTIES
+    DEBUG_POSTFIX d
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON
+    ARCHIVE_OUTPUT_DIRECTORY lib
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib
+)
+target_include_directories(imgui PUBLIC imgui)
+
+# gl3w that came with imgui to load GL functions
+add_library(gl3w STATIC imgui/examples/libs/gl3w/GL/gl3w.c)
+set_target_properties(gl3w PROPERTIES
+    DEBUG_POSTFIX d
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON
+    ARCHIVE_OUTPUT_DIRECTORY lib
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib
+)
+target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
+target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
+target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
+
 add_subdirectory(Pedal)
 
 target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio pedal)
 ```
 That should be it! We can replace what we had in the audio callback with a wavetable saw from pedal.
-In PedalSynth.cpp
+Full PedalSynth.cpp so far
 ```cpp
+#include "PedalApp.hpp"
+#include <iostream>
+
+#define _USE_MATH_DEFINES
+#include <cmath>
+
 #include "WTSaw.hpp"
-WTSaw saw;
+WTSaw saw;//AA wavetable sawtooth
 void callback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
               unsigned inputChannels, double time, PedalApp* app) {
   saw.setFrequency(appGetSlider(app, 0));
@@ -989,35 +1054,192 @@ void callback(float* output,float* input, unsigned bufferSize, unsigned sampling
     }
   }
 }
+int main(){
+  PedalApp* app = createApp(audioCallback, midiCallback);
+  appAddSlider(app, 0, "Frequency", 0.0f, 2000.0f, 500.0f);
+  startAudioThread(app);
+  while(runApp(app)){
+    updateApp(app);
+  }
+  deleteApp(app);
+}
 ```
 This should veryify that pedal is working. 
 ## Adding RtMidi
+---
 
-Fortunately adding RtMidi is very similar to adding RtAudio; we will need to provide a callback function for the cpp, and tell RtAudio to take care of the rest.
-In CMakeLists.txt
+Fortunately adding RtMidi is very similar to adding RtAudio; we will need to provide a callback function for the cpp, and tell RtAudio to take care of the rest. 
+Full CMakeLists.txt
 ```CMake
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
+project(PedalSynth)
+
+find_package(OpenGL REQUIRED)
+
+#GLFW, RTAudio, and IMGUI portions from Kee's work on pedal
+# Build all dependencies as static libraries
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+if(MSVC)
+    # suppress general warning on C functions such as strcpy, etc.
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS)
+endif()
+add_subdirectory(Pedal)
+
+# glfw 
+set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
+set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
+add_subdirectory(glfw)
+
+# Rtaudio 
+set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "Rtaudio Shared Lib" FORCE)
+set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
+set(RTAUDIO_TARGETNAME_UNINSTALL
+    RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
+add_subdirectory(rtaudio)
+#RtMidi
 set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "Rtmidi Shared Lib" FORCE)
 set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "Rtmidi Testing" FORCE)
 set(RTMIDI_TARGETNAME_UNINSTALL
     RTMIDI_UNINSTALL CACHE STRING "Rtmidi Uninstall Target" FORCE)
 add_subdirectory(rtmidi)
+# imgui
+add_library(imgui STATIC imgui/imgui_demo.cpp imgui/imgui_draw.cpp
+                         imgui/imgui_widgets.cpp imgui/imgui.cpp)
+set_target_properties(imgui PROPERTIES
+    DEBUG_POSTFIX d
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON
+    ARCHIVE_OUTPUT_DIRECTORY lib
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib
+)
+target_include_directories(imgui PUBLIC imgui)
+
+# gl3w that came with imgui to load GL functions
+add_library(gl3w STATIC imgui/examples/libs/gl3w/GL/gl3w.c)
+set_target_properties(gl3w PROPERTIES
+    DEBUG_POSTFIX d
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON
+    ARCHIVE_OUTPUT_DIRECTORY lib
+    ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+    ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib
+)
+target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
+target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
+target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
+
+add_library(pedal_app STATIC 
+  PedalApp.cpp
+  imgui/examples/imgui_impl_glfw.cpp 
+  imgui/examples/imgui_impl_opengl3.cpp
+)
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
 
 target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal rtmidi)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
+
+add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
+target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 In the cpp we will have to add an include, add a few elements to the PedalApp Struct, and initiate RtMidi. Note that we will have to create another function pointer in the hpp to define the createApp() function.
-In PedalApp.hpp:
+Full PedalApp.hpp:
 ```cpp
+#ifndef PedalApp_hpp
+#define PedalApp_hpp
+
+struct PedalApp;
+using defaultCallback = void (*)(float* output, float* input, unsigned bufferSize,
+                              unsigned samplingRate, unsigned numChannelsOut,
+                              unsigned numChannelsIn,double streamTime, 
+                              PedalApp* app);
 #include <vector>
 using defaultMidiInputCallback = void (*)(double deltatime, 
                                    std::vector< unsigned char >* message,
                                    PedalApp* app);
 PedalApp* createApp(defaultCallback audioCallback, defaultMidiInputCallback midiInputCallback);
+bool runApp(PedalApp* app);
+void updateApp(PedalApp* app);
+void deleteApp(PedalApp* app);
+void startAudioThread(PedalApp* app);
+
+void appGetCursorPos(PedalApp* app, float* mx, float* my);
+void appAddSlider(PedalApp* app, int sliderIndex, const char* name,
+                  float low, float high, float initialValue);
+float appGetSlider(PedalApp* app, int idx);
+void appAddToggle(PedalApp* app, int toggleIndex, const char* name,
+                  bool initialValue);
+bool appGetToggle(PedalApp* app, int idx);
+void appAddTrigger(PedalApp* app, int triggerIndex, const char* name);
+bool appGetTrigger(PedalApp* app, int idx);
+void appAddDropDown(PedalApp* app, int idx, const char* name,  
+                    char*  content[], int length);
+int appGetDropDown(PedalApp* app, int indx);
+#endif
 ```
-In PedalApp.cpp:
+The PedalApp.cpp will implement this callback in the same manner as the audio callback.
+Full PedalApp.cpp:
 ```cpp
+#include "PedalApp.hpp"
+
+#define GLFW_INCLUDE_NONE
+#include "GLFW/glfw3.h"
+
+#include "GL/gl3w.h"
+#include "imgui.h"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_opengl3.h"
+
+#include "RtAudio.h"
 #include "RtMidi.h"
-//----------skip
+#include <string>
+#include <atomic>
+#include <iostream>
+
+#define NUM_SLIDERS_MAX 16
+#define NUM_TOGGLES_MAX 16
+#define NUM_TRIGGERS_MAX 16
+#define NUM_DROPDOWNS_MAX 16
+
+struct slider {
+    std::string name;
+    std::atomic<float> atomic_val;
+    float low, high;
+    float val;
+};
+struct toggle {
+    std::string name;
+    std::atomic<bool> atomic_val;
+    bool val;
+};
+struct trigger {
+    std::string name;
+    std::atomic<bool> atomic_val;
+    bool val;
+};
+struct dropDown{
+    std::string name;
+    std::atomic<int> atomic_val;
+    char** content;
+    int length;
+    int val;
+};
+
 struct PedalApp{
   GLFWwindow* window;//application window
   RtAudio rtaudio;
@@ -1040,6 +1262,13 @@ struct PedalApp{
   std::atomic<float> cursory;
 };
 
+//==============This is needed for glfw window callback
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  if ((action == GLFW_PRESS) && (mods & GLFW_MOD_CONTROL) && (key == GLFW_KEY_Q)) {
+      glfwSetWindowShouldClose(window, 1);
+  }
+}
+
 static void midiCallback( double deltatime, std::vector< unsigned char > *message, void *userData ){
   std::vector<unsigned char> inputMessage;
   for(int i = 0; i < message->size(); i++){
@@ -1050,10 +1279,90 @@ static void midiCallback( double deltatime, std::vector< unsigned char > *messag
     app->midiInputCallback(deltatime, message, app);
   }
 }
-```
-and in createApp()
-```cpp
-//RTMidi
+static int audioCallback(void *outputBuffer, void *inputBuffer,
+                         unsigned int nFrames, double streamTime,
+                         RtAudioStreamStatus status, void *userData) {
+    float* out = (float*)outputBuffer;
+    float* in = (float*)inputBuffer;
+
+    auto* app = (PedalApp*)userData;
+    if (app && app->callback) {
+        app->callback(out, in, nFrames, app->sampling_rate, app->output_channels,
+                      app->input_channels, streamTime, app);
+    }
+    return 0;
+}
+PedalApp* createApp(defaultCallback callback, defaultMidiInputCallback midiCallbackIn){
+  PedalApp* app = new PedalApp;
+  if(!app){
+    std::cout << "error initializing app" << std::endl;
+  }
+  //Make Window
+  if (!glfwInit()) {
+    std::cerr << "Fail: glfwInit\n";
+    delete app;
+    return nullptr;
+  }
+  glfwDefaultWindowHints();
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+  glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+  glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+  glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, true);  // if OSX, this is a must
+  glfwWindowHint(GLFW_AUTO_ICONIFY, false);  // so fullcreen does not iconify
+  app->window = glfwCreateWindow(640, 480, "Pedal Synth", nullptr, nullptr);
+  if (!app->window) {
+    std::cerr << "Fail: glfwCreateWindow\n";
+    glfwTerminate();
+    delete app;
+    return nullptr;
+  }
+  glfwSetKeyCallback(app->window, keyCallback);
+  glfwMakeContextCurrent(app->window);
+  glfwSwapInterval(1);
+
+  app->callback = callback;
+  unsigned default_out = app->rtaudio.getDefaultOutputDevice();
+  auto device_info = app->rtaudio.getDeviceInfo(default_out);
+  app->device_id = default_out;
+  app->device_name = device_info.name;
+  app->input_channels = device_info.inputChannels;
+  app->output_channels = device_info.outputChannels;
+  app->sampling_rate = device_info.preferredSampleRate;
+  app->buffer_size = 512;
+
+  RtAudio::StreamParameters outputParameters;
+  outputParameters.deviceId = app->device_id;
+  outputParameters.nChannels = app->output_channels;
+  outputParameters.firstChannel = 0;
+  RtAudio::StreamParameters inputParameters;
+  auto* inparams = &inputParameters;
+  if (app->input_channels > 0) {
+    inputParameters.deviceId = app->device_id;
+    inputParameters.nChannels = app->input_channels;
+    inputParameters.firstChannel = 0;
+  }
+  else {
+    // cannot open stream with 0 channels so pass nullptr in that case
+    inparams = nullptr;
+  }
+  try {
+    app->rtaudio.openStream(&outputParameters,
+                            inparams,
+                            RTAUDIO_FLOAT32,
+                            app->sampling_rate,
+                            &app->buffer_size,
+                            audioCallback, app,
+                            nullptr, // options
+                            nullptr); // error callback
+  }
+  catch (RtAudioError& e) {
+    e.printMessage();
+    glfwDestroyWindow(app->window);
+    glfwTerminate();
+    delete app;
+    return nullptr;
+  }
+  //RTMidi
   app->rtMidiIn = new RtMidiIn();
     // Check available ports.
   app->numPorts = app->rtMidiIn->getPortCount();
@@ -1074,93 +1383,213 @@ and in createApp()
     // Don't ignore sysex, timing, or active sensing messages.
     app->rtMidiIn->ignoreTypes( true, false, false );
   }
-```
-Now we are ready to add a midiCallback function in the main file
-In PedalSynth.cpp
-```cpp
-void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
-  unsigned int nBytes = message->size();
-  for ( unsigned int i=0; i<nBytes; i++ )
-    std::cout << "Byte " << i << " = " << (int)message->at(i) << ", ";
-  if ( nBytes > 0 )
-    std::cout << "stamp = " << deltaTime << std::endl;
+  
+  //IMGUI
+  if (gl3wInit() != 0) {
+    std::cerr << "Fail: gl3wInit\n";
+    glfwDestroyWindow(app->window);
+    glfwTerminate();
+    delete app;
+    return nullptr;
+  }
+  IMGUI_CHECKVERSION();
+  ImGui::CreateContext();
+  ImGui_ImplGlfw_InitForOpenGL(app->window, true);
+  ImGui_ImplOpenGL3_Init("#version 330");
+
+  for (int i = 0; i < NUM_SLIDERS_MAX; i += 1) {
+    slider* s = app->sliders + i;
+    s->name = "";
+    s->low = 0.0f;
+    s->high = 1.0f;
+    s->val = 0.0f;
+    s->atomic_val.store(0.0f);
+  }
+  for (int i = 0; i < NUM_TOGGLES_MAX; i += 1) {
+    toggle* t = app->toggles + i;
+    t->name = "";
+    t->val = false;
+    t->atomic_val.store(false);
+  }
+  for (int i = 0; i < NUM_TRIGGERS_MAX; i += 1) {
+    trigger* t = app->triggers + i;
+    t->name = "";
+    t->val = false;
+    t->atomic_val.store(false);
+  }
+  return app;
 }
-```
-And make sure to add the function pointer to createApp in the main function.
-```cpp
-PedalApp* app = createApp(audioCallback, midiCallback);
-```
-Now when the app runs, a midi device should be listed on the window and the input should print to the screen. 
+bool runApp(PedalApp* app){
+  glfwSwapBuffers(app->window);
+  glfwPollEvents();
+  return glfwWindowShouldClose(app->window) ? false : true;
+}
+static float clampf01(float x) {
+    if (x < 0.0f) return 0.0f;
+    else if (x > 1.0f) return 1.0f;
+    else return x;
+}
+void updateApp(PedalApp* app){
+  int display_w, display_h;
+  glfwGetFramebufferSize(app->window, &display_w, &display_h);
+  int window_w, window_h;
+  glfwGetWindowSize(app->window, &window_w, &window_h);
+  double cursorx, cursory;
+  glfwGetCursorPos(app->window, &cursorx, &cursory);
+  
+  float cx = (float)(cursorx / window_w);
+  float cy = (float)(cursory / window_h);
+  cx = clampf01(cx);
+  cy = clampf01(cy);
+  app->cursorx.store(cx);
+  app->cursory.store(cy);
+  //Update GUI
+  ImGui_ImplOpenGL3_NewFrame();
+  ImGui_ImplGlfw_NewFrame();
+  ImGui::NewFrame();
 
-RtMidi provides the binary input data. Each callback is a full MIDI message. You can use pedal's MIDIEvent class to interpret the binary data and get more familiar results
+  ImGuiWindowFlags flags = 0;
+  flags |= ImGuiWindowFlags_NoTitleBar;
+  flags |= ImGuiWindowFlags_NoResize;
+  flags |= ImGuiWindowFlags_NoMove;
+  flags |= ImGuiWindowFlags_NoCollapse;
+  flags |= ImGuiWindowFlags_AlwaysAutoResize;
+  flags |= ImGuiWindowFlags_NoBackground;
+  flags |= ImGuiWindowFlags_NoSavedSettings;
 
-Let's start by using NoteON messages to determine the frequency of the oscillator
+  ImGui::SetNextWindowPos(ImVec2{0.0f,0.0f});
+  ImGui::SetNextWindowSize(ImVec2{window_w/2.0f, float(window_h)});
+  ImGui::Begin("Left Window", nullptr, flags);
+  ImGui::TextUnformatted("ctrl-q to quit");
+  ImGui::TextUnformatted(app->device_name.c_str());
+  ImGui::Value("channels", app->output_channels);
+  ImGui::Value("sampling rate", app->sampling_rate);
+  ImGui::Value("buffer size", app->buffer_size);
+  ImGui::TextUnformatted(app->midiDeviceName.c_str());
+  ImGui::Value("mx", cx);
+  ImGui::Value("my", cy);
+  for (int i = 0; i < NUM_TOGGLES_MAX; i += 1) {
+    toggle* t = app->toggles + i;
+    if (t->name.empty()) continue;
+      ImGui::Checkbox(t->name.c_str(), &t->val);
+  }
+  for (int i = 0; i < NUM_TRIGGERS_MAX; i += 1) {
+    trigger* t = app->triggers + i;
+    if (t->name.empty()) continue;
+      t->val = ImGui::Button(t->name.c_str()); 
+  }
+  for(int i = 0; i < NUM_DROPDOWNS_MAX; i += 1){
+    dropDown* t = app->dropDowns + i;
+    if (t->name.empty()) continue;
+      ImGui::Combo(t->name.c_str(), &t->val, t->content, t->length, 4);
+  }//Combo(const char* label, int* current_item, const char* const items[], int items_count, int popup_max_height_in_items = -1);
+  ImGui::End();
 
-In PedalSynth.cpp
-```cpp
-#include "utilities.hpp"
-#include "MIDIEvent.hpp"
-MIDIEvent midiEvent;
-void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
-  MIDIEvent event(message);
-  switch(event.getEventType()){
-    case MIDIEvent::EventTypes::NOTE_ON:
-    saw.setFrequency(mtof(event.getNoteNumber()));
-    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
-    break;
+  ImGui::SetNextWindowPos(ImVec2{window_w/2.0f,0.0f});
+  ImGui::SetNextWindowSize(ImVec2{window_w/2.0f, float(window_h)});
+  ImGui::Begin("Right Window", nullptr, flags);
+  for (int i = 0; i < NUM_SLIDERS_MAX; i += 1) {
+    slider* s = app->sliders + i;
+    if (s->name.empty()) continue;
+      ImGui::SliderFloat(s->name.c_str(), &s->val, s->low, s->high);
+  }
+  ImGui::End();
+
+  ImGui::Render();
+
+  glViewport(0, 0, display_w, display_h);
+  glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
+  glClear(GL_COLOR_BUFFER_BIT);
+  ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+
+  for (int i = 0; i < NUM_SLIDERS_MAX; i += 1) {
+    slider* s = app->sliders + i;
+    s->atomic_val.store(s->val);
+  }
+  for (int i = 0; i < NUM_TOGGLES_MAX; i += 1) {
+    toggle* t = app->toggles + i;
+    t->atomic_val.store(t->val);
+  }
+  for (int i = 0; i < NUM_TRIGGERS_MAX; i += 1) {
+    trigger* t = app->triggers + i;
+    t->atomic_val.store(t->val);
+  }
+  for (int i = 0; i < NUM_DROPDOWNS_MAX; i += 1){
+    dropDown* t = app->dropDowns + i;
+    t->atomic_val.store(t->val);
   }
 }
+void deleteApp(PedalApp* app){
+  try {
+    app->rtaudio.stopStream();
+  }
+  catch (RtAudioError& e) {
+    e.printMessage();
+  }
+  if (app->rtaudio.isStreamOpen()) {
+    app->rtaudio.closeStream(); 
+  }
+  delete app->rtMidiIn;
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
+  glfwDestroyWindow(app->window);
+  glfwTerminate();
+  delete app;
+}
+void startAudioThread(PedalApp* app){
+  app->rtaudio.startStream();
+}
+void appGetCursorPos(PedalApp* app, float* mx, float* my) {
+  *mx = app->cursorx.load();
+  *my = app->cursory.load();
+}
+void appAddSlider(PedalApp* app, int sliderIndex, const char* name,
+                  float low, float high, float initialValue) {
+  slider* s = app->sliders + sliderIndex;
+  s->name = name;
+  s->low = low;
+  s->high = high;
+  s->val = initialValue;
+  s->atomic_val.store(initialValue);
+}
+float appGetSlider(PedalApp* app, int idx) {
+  return app->sliders[idx].atomic_val.load();
+}
+void appAddToggle(PedalApp* app, int toggleIndex, const char* name,
+                  bool initialValue) {
+  toggle* t = app->toggles + toggleIndex;
+  t->name = name;
+  t->val = initialValue;
+  t->atomic_val.store(initialValue);
+}
+bool appGetToggle(PedalApp* app, int idx) {
+  return app->toggles[idx].atomic_val.load();
+}
+void appAddTrigger(PedalApp* app, int triggerIndex, const char* name) {
+  trigger* t = app->triggers + triggerIndex;
+  t->name = name;
+  t->val = false;
+  t->atomic_val.store(false);
+}
+bool appGetTrigger(PedalApp* app, int idx) {
+  return app->triggers[idx].atomic_val.exchange(false);
+}
+void appAddDropDown(PedalApp* app, int idx, const char* name,char* content[],int length){
+  dropDown* t = app->dropDowns + idx;
+  t->name = name;
+  t->content = content;
+  t->val = 0;
+  t->length = length;
+  t->atomic_val.store(0);
+}
+int appGetDropDown(PedalApp* app, int idx){
+  return app->dropDowns[idx].atomic_val.load();
+}
+
 ```
-Instead of jumping to the frequency immediately, let's use a smoothvalue. If the time is set to be very short on a smoothvalue, there is no interpreted lag. However, the time can be expanded to intentionally lag and create portamento.
-Here is the full PedalSynth.cpp so far:
-```cpp
-#include "PedalApp.hpp"
-#include <iostream>
+Now we are ready to add a midiCallback function in the main file. RtMidi provides an array of bytes with varying length. We can use Pedal's MIDIEvent class to translate this binary data into familiar MIDI events. We use MIDIEvent to first find out what type of event it was (note on, note off, cc, pitch bend, etc) and then we can decide what to do with the relavent values. I will use Note On messages to trigger an envelope on, and Note Off messages to trigger an envelope off. Instead of jumping to a new frequency immediately, frequency is a SmoothValue that has a variable arrival time. The slider is now used to control portamento.
 
-#define _USE_MATH_DEFINES
-#include <cmath>
-
-#include "WTSaw.hpp"
-#include "utilities.hpp"
-#include "MIDIEvent.hpp"
-
-WTSaw saw;
-SmoothValue<float> frequency;
-MIDIEvent midiEvent;
-
-void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalApp* app){
-  MIDIEvent event(message);
-  switch(event.getEventType()){
-    case MIDIEvent::EventTypes::NOTE_ON:
-    frequency.setTarget(mtof(event.getNoteNumber()));
-    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
-    break;
-  }
-}
-void audioCallback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
-              unsigned inputChannels, double time, PedalApp* app) {
-  frequency.setTime(appGetSlider(app, 0));
-  for(int i = 0; i < bufferSize; i++){
-    saw.setFrequency(frequency.process());
-    float currentSample = saw.generateSample() * 0.1f;
-    for(int j = 0; j < outputChannels; j++){
-      output[i * outputChannels + j] = currentSample;
-    }
-  }
-}
-int main(){
-  PedalApp* app = createApp(audioCallback, midiCallback);
-  appAddSlider(app, 0, "Portamento", 0.0f, 2000.0f, 500.0f);
-  startAudioThread(app);
-  while(runApp(app)){
-    updateApp(app);
-  }
-  deleteApp(app);
-}
-```
-Lastly, we should use note on and note off messages to manage an envelope. We will use CREnvelope from pedal
-
-Here is the full and final PedalSynth.cpp
+Full PedalSynth.cpp
 ```cpp
 #include "PedalApp.hpp"
 #include <iostream>
@@ -1199,8 +1628,9 @@ void audioCallback(float* output,float* input, unsigned bufferSize, unsigned sam
     saw.setFrequency(frequency.process());
     float currentSample = saw.generateSample();
     currentSample *= envelope.generateSample();
+
     for(int j = 0; j < outputChannels; j++){
-      output[i * outputChannels + j] = currentSample * 1.0f;
+      output[i * outputChannels + j] = currentSample * 0.1f;
     }
   }
 }
