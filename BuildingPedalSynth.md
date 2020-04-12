@@ -30,7 +30,7 @@ In PedalApp.hpp:
 ```
 In PedalApp.cpp:
 ```cpp
-#include PedalApp.hpp
+#include "PedalApp.hpp"
 ```
 These files will contain a PedalApp class that takes care of the library interface. It is where we will define window size, window behavior, samplerate, buffer size, etc. 
 ### Tell CMake what to do
@@ -45,18 +45,13 @@ project(PedalSynth)
 We should make a file to hold the main program. Make the file PedalSynth.cpp and place it in the PedalSynth folder. 
 In PedalSynth:
 ```cpp
-#include PedalApp.hpp
+#include "PedalApp.hpp"
 #include <iostream>//for cout/endl
 int main(){
   std::cout << "Hello World" << std::endl;
 }
 ```
-If making a repo, make a readme.md 
-in readme.md:
-```md
-# PedalSynth
-## A synth app made with pedal
-```
+
 If making a repository (you should), now is a good time. The most simple approach is to make a new repository online with the same name, clone it to your computer, copy in all the files we just created, and run the command
 ``` 
 git add .
@@ -70,6 +65,7 @@ git push origin master
 ```
 should update your online repo.
 ### Building an application with CMake
+---
 The first place to start now that we have the necessary files is the CMakeLists.txt. To do a minimum build, we must use CMakeLists to compile the PedalApp.cpp and give access to PedalSynth.cpp.
 In CMakeLists.txt
 ```CMake
@@ -79,7 +75,25 @@ project(PedalSynth)
 add_library(pedal_app STATIC
   PedalApp.cpp
 )
+
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
+
 add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
 target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 We should now be able to use CMake to build generators, and use the generator to compile that application.
@@ -96,7 +110,7 @@ make
 ```
 This should compile the program so far. To run the program, enter
 ```
-./PedalSynth
+./bin/PedalSynth
 ```
 If succesful, Hello World should have printed to the console. 
 ## Adding GLFW
@@ -125,8 +139,25 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
 add_subdirectory(glfw)
 
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
+
 target_link_libraries(pedal_app PUBLIC glfw)
 add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
 target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 In these steps we gave instructions on how to build/include glfw, and added this target to pedal_synth. pedal_synth is added to the executable, so we are now free to use it. 
@@ -134,11 +165,15 @@ In these steps we gave instructions on how to build/include glfw, and added this
 Now we can add GLFW to the PedalApp class
 In PedalApp.hpp
 ```cpp
+#ifndef PedalApp_hpp
+#define PedalApp_hpp
+
 struct PedalApp;
 PedalApp* createApp();
 bool runApp(PedalApp* app);
 void updateApp(PedalApp* app);
 void deleteApp(PedalApp* app);
+#endif 
 ```
 These functions will allow us to control the application from PedalSynth.cpp. The PedalApp is not defined here. This is to allow it to compile without having to include everything every time and increase the build time. I got this trick from Kee Youn. Now we should define the PedalApp struct and the three functions in the cpp.
 In PedalApp.cpp
@@ -271,10 +306,27 @@ set(RTAUDIO_TARGETNAME_UNINSTALL
     RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
 add_subdirectory(rtaudio)
 
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
+
 target_include_directories(pedal_app PUBLIC rtaudio)
 target_link_libraries(pedal_app PUBLIC glfw rtaudio)
 
 add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
 target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 Compiling will now include RTSound, and we have access to it in PedalApp
@@ -528,10 +580,27 @@ target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
 target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
 target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
 
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
+
 target_include_directories(pedal_app PUBLIC rtaudio imgui/examples)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio)
 
 add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
 target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 We will only compile and have access to what we need from imgui, which will include dropdown menus, sliders, toggles, and triggers. We need a unique function to create elements and a way to access elements. 
@@ -1030,8 +1099,27 @@ target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
 
 add_subdirectory(Pedal)
 
+set_target_properties(pedal_app PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON 
+  ARCHIVE_OUTPUT_DIRECTORY lib
+  ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
+  ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
+)
+
 target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio pedal)
+add_executable(PedalSynth PedalSynth.cpp)
+set_target_properties(PedalSynth PROPERTIES
+  DEBUG_POSTFIX d
+  CXX_STANDARD 14
+  CXX_STANDARD_REQUIRED ON
+  RUNTIME_OUTPUT_DIRECTORY bin
+  RUNTIME_OUTPUT_DIRECTORY_DEBUG bin
+  RUNTIME_OUTPUT_DIRECTORY_RELEASE bin
+)
+target_link_libraries(PedalSynth PRIVATE pedal_app)
 ```
 That should be it! We can replace what we had in the audio callback with a wavetable saw from pedal.
 Full PedalSynth.cpp so far
@@ -1268,7 +1356,6 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
       glfwSetWindowShouldClose(window, 1);
   }
 }
-
 static void midiCallback( double deltatime, std::vector< unsigned char > *message, void *userData ){
   std::vector<unsigned char> inputMessage;
   for(int i = 0; i < message->size(); i++){
