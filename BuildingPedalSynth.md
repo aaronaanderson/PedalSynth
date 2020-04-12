@@ -334,6 +334,9 @@ Compiling will now include RTSound, and we have access to it in PedalApp
 We will have to create a definition of an audio callback function in the header in order to create a function that initializes the audio thread.
 In PedalApp.hpp
 ```cpp
+#ifndef PedalApp_hpp
+#define PedalApp_hpp
+
 using defaultCallback = void (*)(float* output, float* input, unsigned bufferSize,
                               unsigned samplingRate, unsigned numChannelsOut,
                               unsigned numChannelsIn,double streamTime, 
@@ -343,6 +346,7 @@ void startAudioThread(PedalApp* app);
 bool runApp(PedalApp* app);
 void updateApp(PedalApp* app);
 void deleteApp(PedalApp* app);
+#endif 
 ```
 Here is the full PedalApp.cpp:
 ```cpp
@@ -350,10 +354,13 @@ Here is the full PedalApp.cpp:
 
 #define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
+
+#include "RtAudio.h"
+#include <string>
 #include <atomic>
 #include <iostream>
 
-struct PedalApp{//stores all application data
+struct PedalApp{
   GLFWwindow* window;//application window
   RtAudio rtaudio;
   std::string device_name;
@@ -367,10 +374,10 @@ struct PedalApp{//stores all application data
   std::atomic<float> cursory;
 };
 
-//==============This is needed for glfw window keyboard input callback
-void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods){
-  if ((action == GLFW_PRESS) && (mods & GLFW_MOD_CONTROL) && (key == GLFW_KEY_Q)){
-    glfwSetWindowShouldClose(window, 1);
+//==============This is needed for glfw window callback
+void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods) {
+  if ((action == GLFW_PRESS) && (mods & GLFW_MOD_CONTROL) && (key == GLFW_KEY_Q)) {
+      glfwSetWindowShouldClose(window, 1);
   }
 }
 static int audioCallback(void *outputBuffer, void *inputBuffer,
@@ -386,12 +393,12 @@ static int audioCallback(void *outputBuffer, void *inputBuffer,
     }
     return 0;
 }
-PedalApp* createApp(){
+PedalApp* createApp(defaultCallback callback){
   PedalApp* app = new PedalApp;
   if(!app){
     std::cout << "error initializing app" << std::endl;
   }
-  //==============GLFW
+  //Make Window
   if (!glfwInit()) {
     std::cerr << "Fail: glfwInit\n";
     delete app;
@@ -413,8 +420,7 @@ PedalApp* createApp(){
   glfwSetKeyCallback(app->window, keyCallback);
   glfwMakeContextCurrent(app->window);
   glfwSwapInterval(1);
-  
-  //===========RTAudio
+
   app->callback = callback;
   unsigned default_out = app->rtaudio.getDefaultOutputDevice();
   auto device_info = app->rtaudio.getDeviceInfo(default_out);
@@ -430,14 +436,25 @@ PedalApp* createApp(){
   outputParameters.nChannels = app->output_channels;
   outputParameters.firstChannel = 0;
   RtAudio::StreamParameters inputParameters;
-  inputParameters.deviceId = app->device_id;
-  inputParameters.nChannels = app->input_channels;
-  inputParameters.firstChannel = 0;
+  auto* inparams = &inputParameters;
+  if (app->input_channels > 0) {
+    inputParameters.deviceId = app->device_id;
+    inputParameters.nChannels = app->input_channels;
+    inputParameters.firstChannel = 0;
+  }
+  else {
+    // cannot open stream with 0 channels so pass nullptr in that case
+    inparams = nullptr;
+  }
   try {
-    app->audio.openStream(&outputParameters, &inputParameters, RTAUDIO_FLOAT32,
-                          app->sampling_rate, &app->buffer_size,
-                          callback, app,
-                          nullptr, nullptr); // option & error callback
+    app->rtaudio.openStream(&outputParameters,
+                            inparams,
+                            RTAUDIO_FLOAT32,
+                            app->sampling_rate,
+                            &app->buffer_size,
+                            audioCallback, app,
+                            nullptr, // options
+                            nullptr); // error callback
   }
   catch (RtAudioError& e) {
     e.printMessage();
@@ -447,9 +464,6 @@ PedalApp* createApp(){
     return nullptr;
   }
   return app;
-}
-void startAudioThread(PedalApp* app){
-  app->rtaudio.startStream();
 }
 bool runApp(PedalApp* app){
   glfwSwapBuffers(app->window);
@@ -484,14 +498,19 @@ void deleteApp(PedalApp* app){
     e.printMessage();
   }
   if (app->rtaudio.isStreamOpen()) {
-    app->rtaudio.closeStream();
+    app->rtaudio.closeStream(); 
   }
+  delete app->rtMidiIn;
+  ImGui_ImplOpenGL3_Shutdown();
+  ImGui_ImplGlfw_Shutdown();
   glfwDestroyWindow(app->window);
   glfwTerminate();
   delete app;
 }
+void startAudioThread(PedalApp* app){
+  app->rtaudio.startStream();
+}
 ```
-
 The callback functions are a bit odd and call for an explenation. In the header, we had to define a callback function so we could use it as an input for createApp(). However, it was decided to avoid including RtAudio.h in the header to avoid slow compile times. We've created our own callback function in the header that get's called every time RTAudio's callback function get's called. Note we can now give our PedalSynth.cpp file an identical format callback, thus allowing a user to define that function in the CPP. This is demonstrated in the following...
 Full PedalSynth.cpp so far
 

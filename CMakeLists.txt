@@ -18,6 +18,13 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
 add_subdirectory(glfw)
 
+# Rtaudio for audio IO
+set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "Rtaudio Shared Lib" FORCE)
+set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
+set(RTAUDIO_TARGETNAME_UNINSTALL
+    RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
+add_subdirectory(rtaudio)
+
 set_target_properties(pedal_app PROPERTIES
   DEBUG_POSTFIX d
   CXX_STANDARD 14
@@ -27,7 +34,9 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
 
-target_link_libraries(pedal_app PUBLIC glfw)
+target_include_directories(pedal_app PUBLIC rtaudio)
+target_link_libraries(pedal_app PUBLIC glfw rtaudio)
+
 add_executable(PedalSynth PedalSynth.cpp)
 set_target_properties(PedalSynth PROPERTIES
   DEBUG_POSTFIX d
