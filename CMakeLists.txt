@@ -63,9 +63,8 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
-
-target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal rtmidi)
-target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples)
+target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio)
 
 add_executable(PedalSynth PedalSynth.cpp)
 set_target_properties(PedalSynth PROPERTIES
