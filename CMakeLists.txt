@@ -10,6 +10,7 @@ if(MSVC)
     # suppress general warning on C functions such as strcpy, etc.
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
+add_subdirectory(Pedal)
 
 # glfw 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
@@ -22,7 +23,12 @@ set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
 set(RTAUDIO_TARGETNAME_UNINSTALL
     RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
 add_subdirectory(rtaudio)
-
+#RtMidi
+set(RTMIDI_BUILD_STATIC_LIBS ON CACHE BOOL "Rtmidi Shared Lib" FORCE)
+set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "Rtmidi Testing" FORCE)
+set(RTMIDI_TARGETNAME_UNINSTALL
+    RTMIDI_UNINSTALL CACHE STRING "Rtmidi Uninstall Target" FORCE)
+add_subdirectory(rtmidi)
 # imgui
 add_library(imgui STATIC imgui/imgui_demo.cpp imgui/imgui_draw.cpp
                          imgui/imgui_widgets.cpp imgui/imgui.cpp)
@@ -63,11 +69,9 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
-# pedal
-add_subdirectory(Pedal)
 
-target_include_directories(pedal_app PUBLIC rtaudio imgui/examples pedal/include)
-target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio pedal)
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include rtmidi)
+target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
 
 add_executable(PedalSynth PedalSynth.cpp)
 set_target_properties(PedalSynth PROPERTIES

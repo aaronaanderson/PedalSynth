@@ -1252,7 +1252,7 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
 
-target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal rtmidi)
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include rtmidi)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
 
 add_executable(PedalSynth PedalSynth.cpp)
@@ -1282,6 +1282,7 @@ using defaultMidiInputCallback = void (*)(double deltatime,
                                    std::vector< unsigned char >* message,
                                    PedalApp* app);
 PedalApp* createApp(defaultCallback audioCallback, defaultMidiInputCallback midiInputCallback);
+void openMidiPort(PedalApp* app, int port);
 bool runApp(PedalApp* app);
 void updateApp(PedalApp* app);
 void deleteApp(PedalApp* app);
@@ -1360,7 +1361,6 @@ struct PedalApp{
   unsigned buffer_size;
   defaultCallback callback;
   RtMidiIn* rtMidiIn;
-  defaultMidiInputCallback midiInputCallback;
   std::string midiDeviceName;
   unsigned int numPorts;
   slider sliders[NUM_SLIDERS_MAX];
@@ -1377,16 +1377,7 @@ void keyCallback(GLFWwindow* window, int key, int scancode, int action, int mods
       glfwSetWindowShouldClose(window, 1);
   }
 }
-static void midiCallback( double deltatime, std::vector< unsigned char > *message, void *userData ){
-  std::vector<unsigned char> inputMessage;
-  for(int i = 0; i < message->size(); i++){
-    inputMessage.push_back(message->at(i));
-  }
-  auto* app = (PedalApp*)userData;
-  if(app && app->midiInputCallback){
-    app->midiInputCallback(deltatime, message, app);
-  }
-}
+
 static int audioCallback(void *outputBuffer, void *inputBuffer,
                          unsigned int nFrames, double streamTime,
                          RtAudioStreamStatus status, void *userData) {
@@ -1481,13 +1472,12 @@ PedalApp* createApp(defaultCallback callback, defaultMidiInputCallback midiCallb
     std::cout << "No ports available!\n";
     //DELETE STUFF TODO
   }else{
-    app->rtMidiIn->openPort(1);
+    app->rtMidiIn->openPort(0);
     // Set our callback function.  This should be done immediately after
     // opening the port to avoid having incoming messages written to the
     // queue.
     app->rtMidiIn->setCallback((RtMidiIn::RtMidiCallback)midiCallbackIn);
-    app->midiInputCallback = midiCallbackIn;
-    app->midiDeviceName = app->rtMidiIn->getPortName(1);
+    app->midiDeviceName = app->rtMidiIn->getPortName(0);
     // Don't ignore sysex, timing, or active sensing messages.
     app->rtMidiIn->ignoreTypes( true, false, false );
   }
@@ -1644,6 +1634,13 @@ void deleteApp(PedalApp* app){
   glfwTerminate();
   delete app;
 }
+void openMidiPort(PedalApp* app, int port){
+  if(port < app->rtMidiIn->getPortCount()){
+    app->rtMidiIn->closePort();
+    app->rtMidiIn->openPort(port);
+    app->midiDeviceName = app->rtMidiIn->getPortName(port);
+  }
+}
 void startAudioThread(PedalApp* app){
   app->rtaudio.startStream();
 }
@@ -1693,7 +1690,6 @@ void appAddDropDown(PedalApp* app, int idx, const char* name,char* content[],int
 int appGetDropDown(PedalApp* app, int idx){
   return app->dropDowns[idx].atomic_val.load();
 }
-
 ```
 Now we are ready to add a midiCallback function in the main file. RtMidi provides an array of bytes with varying length. We can use Pedal's MIDIEvent class to translate this binary data into familiar MIDI events. We use MIDIEvent to first find out what type of event it was (note on, note off, cc, pitch bend, etc) and then we can decide what to do with the relavent values. I will use Note On messages to trigger an envelope on, and Note Off messages to trigger an envelope off. Instead of jumping to a new frequency immediately, frequency is a SmoothValue that has a variable arrival time. The slider is now used to control portamento.
 
@@ -1705,10 +1701,10 @@ Full PedalSynth.cpp
 #define _USE_MATH_DEFINES
 #include <cmath>
 
-#include "WTSaw.hpp"
-#include "utilities.hpp"
-#include "MIDIEvent.hpp"
-#include "CREnvelope.hpp"
+#include "pedal/WTSaw.hpp"
+#include "pedal/utilities.hpp"
+#include "pedal/MIDIEvent.hpp"
+#include "pedal/CREnvelope.hpp"
 
 WTSaw saw;
 SmoothValue<float> frequency;
@@ -1721,10 +1717,10 @@ void midiCallback(double deltaTime, std::vector<unsigned char>* message, PedalAp
     case MIDIEvent::EventTypes::NOTE_ON:
     frequency.setTarget(mtof(event.getNoteNumber()));
     envelope.setTrigger(true);
-    std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    //std::cout << "Note On | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
     break;
     case MIDIEvent::EventTypes::NOTE_OFF:
-    std::cout << "Note Off | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
+    //std::cout << "Note Off | " << event.getNoteNumber() << " " << event.getNoteVelocity() << std::endl;
     envelope.setTrigger(false);
     break;
   }
@@ -1745,6 +1741,11 @@ void audioCallback(float* output,float* input, unsigned bufferSize, unsigned sam
 int main(){
   PedalApp* app = createApp(audioCallback, midiCallback);
   appAddSlider(app, 0, "Portamento", 0.0f, 2000.0f, 500.0f);
+  //appAddSlider(app, 1, "Second Slider", 0.0f, 1.0f, 0.7f);
+  //appAddToggle(app, 0, "toggle", false);
+  //appAddTrigger(app, 0, "tigger");
+  
+  //openMidiPort(app, 1);
   startAudioThread(app);
   while(runApp(app)){
     updateApp(app);

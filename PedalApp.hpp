@@ -6,7 +6,12 @@ using defaultCallback = void (*)(float* output, float* input, unsigned bufferSiz
                               unsigned samplingRate, unsigned numChannelsOut,
                               unsigned numChannelsIn,double streamTime, 
                               PedalApp* app);
-PedalApp* createApp(defaultCallback audioCallback);
+#include <vector>
+using defaultMidiInputCallback = void (*)(double deltatime, 
+                                   std::vector< unsigned char >* message,
+                                   PedalApp* app);
+PedalApp* createApp(defaultCallback audioCallback, defaultMidiInputCallback midiInputCallback);
+void openMidiPort(PedalApp* app, int port);
 bool runApp(PedalApp* app);
 void updateApp(PedalApp* app);
 void deleteApp(PedalApp* app);
