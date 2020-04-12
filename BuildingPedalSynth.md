@@ -337,11 +337,12 @@ In PedalApp.hpp
 #ifndef PedalApp_hpp
 #define PedalApp_hpp
 
+struct PedalApp;
 using defaultCallback = void (*)(float* output, float* input, unsigned bufferSize,
                               unsigned samplingRate, unsigned numChannelsOut,
                               unsigned numChannelsIn,double streamTime, 
                               PedalApp* app);
-PedalApp* createApp(defaultCallback* audioCallback);
+PedalApp* createApp(defaultCallback audioCallback);
 void startAudioThread(PedalApp* app);
 bool runApp(PedalApp* app);
 void updateApp(PedalApp* app);
@@ -500,9 +501,6 @@ void deleteApp(PedalApp* app){
   if (app->rtaudio.isStreamOpen()) {
     app->rtaudio.closeStream(); 
   }
-  delete app->rtMidiIn;
-  ImGui_ImplOpenGL3_Shutdown();
-  ImGui_ImplGlfw_Shutdown();
   glfwDestroyWindow(app->window);
   glfwTerminate();
   delete app;
@@ -511,22 +509,29 @@ void startAudioThread(PedalApp* app){
   app->rtaudio.startStream();
 }
 ```
-The callback functions are a bit odd and call for an explenation. In the header, we had to define a callback function so we could use it as an input for createApp(). However, it was decided to avoid including RtAudio.h in the header to avoid slow compile times. We've created our own callback function in the header that get's called every time RTAudio's callback function get's called. Note we can now give our PedalSynth.cpp file an identical format callback, thus allowing a user to define that function in the CPP. This is demonstrated in the following...
+The callback functions are a bit odd and call for an explanation. In the header, we had to define a callback function so we could use it as an input for createApp(). However, it was decided to avoid including RtAudio.h in the header to avoid slow compile times. We've created our own callback function in the header that get's called every time RTAudio's callback function get's called. Note we can now give our PedalSynth.cpp file an identical format callback, thus allowing a user to define that function in the CPP. This is demonstrated in the following...
 Full PedalSynth.cpp so far
 
 ```cpp
+#include "PedalApp.hpp"
+
 #define _USE_MATH_DEFINES//so we can use M_PI
 #include <cmath>//so we can use std::sin()
 float phase = 0.0f;
 double phaseIncrement = (M_PI * 2.0f * 440.0f)/41000.0f;
-void callback(float* out,float* in, unsigned bufferSize, 
+void callback(float* output,float* input, unsigned bufferSize, 
               unsigned samplingRate, unsigned outputChannels,
-              unsigned inputChannels, double time, pdlExampleApp* app) {
-  float currentSample = std::sin(phase) * 0.1f;//calculate sin per sample
-  phase += phaseIncrement;//increment phase
+              unsigned inputChannels, double time, PedalApp* app) {
+  for(int i = 0; i < bufferSize; i++){
+    float currentSample = std::sin(phase) * 0.1f;
+    phase += phaseIncrement;
+    for(int j = 0; j < outputChannels; j++){
+      output[i * outputChannels + j] = currentSample;
+    }
+  }
 }
 int main(){
-  PedalApp* app = pdlInitExampleApp(callback);
+  PedalApp* app = createApp(callback);
   if (!app) {//if app doesn't succesfully allocate
     return 1;//cancel program, return 1
   }
@@ -545,12 +550,10 @@ Now when the application runs a 440Hz sine wave should sound. This is the hello 
 ---
 Imgui requires that we also  include glew (include with the imgui repository but must be built). The following is the full CMakeLists.txt:
 ```CMake
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(PedalSynth)
 
-add_library(pedal_app STATIC
-  PedalApp.cpp
-)
+find_package(OpenGL REQUIRED)
 
 #GLFW, RTAudio, and IMGUI portions from Kee's work on pedal
 # Build all dependencies as static libraries
@@ -560,19 +563,19 @@ if(MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-# glfw for window creation
+# glfw 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
 add_subdirectory(glfw)
 
-# Rtaudio for audio IO
+# Rtaudio 
 set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "Rtaudio Shared Lib" FORCE)
 set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
 set(RTAUDIO_TARGETNAME_UNINSTALL
     RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
 add_subdirectory(rtaudio)
 
-# imgui for gui
+# imgui
 add_library(imgui STATIC imgui/imgui_demo.cpp imgui/imgui_draw.cpp
                          imgui/imgui_widgets.cpp imgui/imgui.cpp)
 set_target_properties(imgui PROPERTIES
@@ -599,6 +602,11 @@ target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
 target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
 target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
 
+add_library(pedal_app STATIC 
+  PedalApp.cpp
+  imgui/examples/imgui_impl_glfw.cpp 
+  imgui/examples/imgui_impl_opengl3.cpp
+)
 set_target_properties(pedal_app PROPERTIES
   DEBUG_POSTFIX d
   CXX_STANDARD 14
@@ -608,8 +616,8 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
 
-target_include_directories(pedal_app PUBLIC rtaudio imgui/examples)
-target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio)
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal rtmidi)
+target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio rtmidi pedal)
 
 add_executable(PedalSynth PedalSynth.cpp)
 set_target_properties(PedalSynth PROPERTIES
@@ -669,7 +677,6 @@ Full PedalApp.cpp so far:
 #include "imgui_impl_opengl3.h"
 
 #include "RtAudio.h"
-#include "RtMidi.h"
 #include <string>
 #include <atomic>
 #include <iostream>
@@ -713,10 +720,6 @@ struct PedalApp{
   unsigned sampling_rate;
   unsigned buffer_size;
   defaultCallback callback;
-  RtMidiIn* rtMidiIn;
-  defaultMidiInputCallback midiInputCallback;
-  std::string midiDeviceName;
-  unsigned int numPorts;
   slider sliders[NUM_SLIDERS_MAX];
   toggle toggles[NUM_TOGGLES_MAX];
   trigger triggers[NUM_TRIGGERS_MAX];
@@ -745,7 +748,7 @@ static int audioCallback(void *outputBuffer, void *inputBuffer,
     }
     return 0;
 }
-PedalApp* createApp(defaultCallback callback, defaultMidiInputCallback midiCallbackIn){
+PedalApp* createApp(defaultCallback callback){
   PedalApp* app = new PedalApp;
   if(!app){
     std::cout << "error initializing app" << std::endl;
@@ -897,7 +900,6 @@ void updateApp(PedalApp* app){
   ImGui::Value("channels", app->output_channels);
   ImGui::Value("sampling rate", app->sampling_rate);
   ImGui::Value("buffer size", app->buffer_size);
-  ImGui::TextUnformatted(app->midiDeviceName.c_str());
   ImGui::Value("mx", cx);
   ImGui::Value("my", cy);
   for (int i = 0; i < NUM_TOGGLES_MAX; i += 1) {
@@ -961,7 +963,6 @@ void deleteApp(PedalApp* app){
   if (app->rtaudio.isStreamOpen()) {
     app->rtaudio.closeStream(); 
   }
-  delete app->rtMidiIn;
   ImGui_ImplOpenGL3_Shutdown();
   ImGui_ImplGlfw_Shutdown();
   glfwDestroyWindow(app->window);
@@ -1017,8 +1018,6 @@ void appAddDropDown(PedalApp* app, int idx, const char* name,char* content[],int
 int appGetDropDown(PedalApp* app, int idx){
   return app->dropDowns[idx].atomic_val.load();
 }
-
-
 ```
 If we were sucessful the app will still build and we are ready to add gui to the PedalSynth.cpp.
 In PedalSynth.cpp, we can now add and use a slider
