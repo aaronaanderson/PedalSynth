@@ -1060,12 +1060,10 @@ Now we have an easy method to add gui elements and query their values. In this e
 You likely found this repository by looking at Pedal, but if not, Pedal is a pedagogical audio library created by myself and Kee Youn. It is both a functional audio library and a learning resource. Adding pedal, the CMakeLists will look like the following.
 Full CMakeLists.txt so far:
 ```CMake
-cmake_minimum_required(VERSION 3.8 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.0 FATAL_ERROR)
 project(PedalSynth)
 
-add_library(pedal_app STATIC
-  PedalApp.cpp
-)
+find_package(OpenGL REQUIRED)
 
 #GLFW, RTAudio, and IMGUI portions from Kee's work on pedal
 # Build all dependencies as static libraries
@@ -1075,19 +1073,19 @@ if(MSVC)
     add_definitions(-D_CRT_SECURE_NO_WARNINGS)
 endif()
 
-# glfw for window creation
+# glfw 
 set(GLFW_BUILD_DOCS OFF CACHE BOOL "GLFW Documentation" FORCE)
 set(GLFW_INSTALL OFF CACHE BOOL "Installation Target" FORCE)
 add_subdirectory(glfw)
 
-# Rtaudio for audio IO
+# Rtaudio 
 set(RTAUDIO_BUILD_STATIC_LIBS ON CACHE BOOL "Rtaudio Shared Lib" FORCE)
 set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "Rtaudio Testing" FORCE)
 set(RTAUDIO_TARGETNAME_UNINSTALL
     RTAUDIO_UNINSTALL CACHE STRING "Rtaudio Uninstall Target" FORCE)
 add_subdirectory(rtaudio)
 
-# imgui for gui
+# imgui
 add_library(imgui STATIC imgui/imgui_demo.cpp imgui/imgui_draw.cpp
                          imgui/imgui_widgets.cpp imgui/imgui.cpp)
 set_target_properties(imgui PROPERTIES
@@ -1114,8 +1112,11 @@ target_include_directories(gl3w PUBLIC imgui/examples/libs/gl3w)
 target_link_libraries(gl3w PUBLIC ${OPENGL_gl_LIBRARY})
 target_compile_definitions(gl3w PUBLIC IMGUI_IMPL_OPENGL_LOADER_GL3W)
 
-add_subdirectory(Pedal)
-
+add_library(pedal_app STATIC 
+  PedalApp.cpp
+  imgui/examples/imgui_impl_glfw.cpp 
+  imgui/examples/imgui_impl_opengl3.cpp
+)
 set_target_properties(pedal_app PROPERTIES
   DEBUG_POSTFIX d
   CXX_STANDARD 14
@@ -1124,9 +1125,12 @@ set_target_properties(pedal_app PROPERTIES
   ARCHIVE_OUTPUT_DIRECTORY_DEBUG lib
   ARCHIVE_OUTPUT_DIRECTORY_RELEASE lib 
 )
+# pedal
+add_subdirectory(Pedal)
 
-target_include_directories(pedal_app PUBLIC rtaudio imgui/examples Pedal/include/pedal)
+target_include_directories(pedal_app PUBLIC rtaudio imgui/examples pedal/include)
 target_link_libraries(pedal_app PUBLIC glfw gl3w imgui rtaudio pedal)
+
 add_executable(PedalSynth PedalSynth.cpp)
 set_target_properties(PedalSynth PROPERTIES
   DEBUG_POSTFIX d
@@ -1147,7 +1151,7 @@ Full PedalSynth.cpp so far
 #define _USE_MATH_DEFINES
 #include <cmath>
 
-#include "WTSaw.hpp"
+#include "pedal/WTSaw.hpp"
 WTSaw saw;//AA wavetable sawtooth
 void callback(float* output,float* input, unsigned bufferSize, unsigned samplingRate, unsigned outputChannels,
               unsigned inputChannels, double time, PedalApp* app) {
@@ -1160,7 +1164,7 @@ void callback(float* output,float* input, unsigned bufferSize, unsigned sampling
   }
 }
 int main(){
-  PedalApp* app = createApp(audioCallback, midiCallback);
+  PedalApp* app = createApp(callback);
   appAddSlider(app, 0, "Frequency", 0.0f, 2000.0f, 500.0f);
   startAudioThread(app);
   while(runApp(app)){
